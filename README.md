@@ -19,7 +19,7 @@
 
 ## 在线试玩
 
-👉 [点击开始游戏](https://你的用户名.github.io/3d-sphere-jump/)
+👉 [点击开始游戏](https://BCWYCZY.github.io/3d-sphere-jump/)
 
 ## 本地运行
 
