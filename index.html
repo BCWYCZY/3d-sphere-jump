@@ -2,11 +2,12 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>3D 轨道跳跃 - 颜色匹配</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { overflow: hidden; background: #e8f4f8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body { height: 100%; overflow: hidden; touch-action: manipulation; }
+        body { background: #e8f4f8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; -webkit-user-select: none; }
         canvas { display: block; }
         .info { position: fixed; top: 20px; left: 20px; color: #fff; font-size: 14px; opacity: 0.8; pointer-events: none; z-index: 10; }
         .score-display { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); color: #fff; font-size: 24px; font-weight: bold; opacity: 0.9; pointer-events: none; z-index: 10; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
@@ -24,221 +25,138 @@
         .lane-indicator { position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; z-index: 10; pointer-events: none; }
         .lane-dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.3); transition: all 0.3s; }
         .lane-dot.active { background: #4488ff; border-color: #4488ff; box-shadow: 0 0 10px rgba(68,136,255,0.6); }
+
+        /* 连击 HUD */
+        .combo-display {
+            position: fixed; top: 122px; left: 50%; transform: translateX(-50%);
+            font-size: 18px; font-weight: bold; color: #ffd76a; letter-spacing: 2px;
+            opacity: 0; pointer-events: none; z-index: 15; text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+            transition: opacity 0.25s;
+        }
+        .combo-display.show { opacity: 1; }
+        .combo-display.pop { animation: comboPop 0.25s ease-out; }
+        @keyframes comboPop { 0% { transform: translateX(-50%) scale(1.5); } 100% { transform: translateX(-50%) scale(1); } }
+
+        /* 浮动得分弹窗 */
+        .popup-layer { position: fixed; inset: 0; pointer-events: none; z-index: 30; overflow: hidden; }
+        .score-popup {
+            position: absolute; transform: translateX(-50%);
+            font-size: 26px; font-weight: bold; color: #fff;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+            animation: popupFloat 0.9s ease-out forwards;
+        }
+        @keyframes popupFloat {
+            0% { opacity: 0; margin-top: 0; }
+            15% { opacity: 1; }
+            100% { opacity: 0; margin-top: -70px; }
+        }
+
+        /* 全屏闪光 */
+        .flash-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 40; opacity: 0; transition: opacity 0.4s; }
+        .flash-overlay.green { background: radial-gradient(circle at 50% 60%, rgba(80,255,160,0.0), rgba(40,220,120,0.35)); }
+        .flash-overlay.gold { background: radial-gradient(circle at 50% 60%, rgba(255,210,90,0.0), rgba(255,190,60,0.42)); }
+
+        /* 顶部操作按钮 */
+        .top-actions { position: fixed; top: 16px; right: 16px; display: flex; gap: 10px; z-index: 60; }
+        .icon-btn {
+            width: 40px; height: 40px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.25);
+            background: rgba(0,0,0,0.4); color: #fff; font-size: 18px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px);
+            transition: all 0.2s;
+        }
+        .icon-btn:hover { background: rgba(0,0,0,0.6); }
+        .icon-btn.active { background: rgba(68,136,255,0.5); }
+
         .fail-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 200; backdrop-filter: blur(8px); }
         .fail-overlay.show { display: flex; }
         .fail-buttons { display: flex; gap: 20px; margin-top: 20px; }
         .fail-text { font-size: 48px; color: #ff4444; font-weight: 300; letter-spacing: 8px; text-shadow: 0 0 30px rgba(255,68,68,0.5); margin-bottom: 20px; animation: failPulse 1.5s ease-in-out infinite; }
         @keyframes failPulse { 0%, 100% { opacity: 0.8; transform: scale(1); } 50% { opacity: 1; transform: scale(1.05); } }
         .fail-sub { font-size: 16px; color: #8888aa; margin-bottom: 40px; letter-spacing: 2px; }
+        .fail-stats { font-size: 15px; color: #d0d0e0; margin-bottom: 24px; letter-spacing: 1px; text-align: center; line-height: 1.8; }
         .restart-btn { padding: 14px 48px; font-size: 18px; color: #fff; background: rgba(68,136,255,0.3); border: 2px solid rgba(68,136,255,0.6); border-radius: 8px; cursor: pointer; letter-spacing: 3px; transition: all 0.3s; }
         .restart-btn:hover { background: rgba(68,136,255,0.5); border-color: rgba(68,136,255,0.9); box-shadow: 0 0 20px rgba(68,136,255,0.4); }
+
+        /* 暂停遮罩 */
+        .pause-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 190; backdrop-filter: blur(6px); }
+        .pause-overlay.show { display: flex; }
+        .pause-text { font-size: 40px; color: #fff; font-weight: 300; letter-spacing: 8px; margin-bottom: 30px; }
+
+        /* 成就 toast */
+        .toast-layer { position: fixed; top: 70px; right: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 300; pointer-events: none; }
+        .toast {
+            background: rgba(20,20,40,0.9); color: #fff; border-left: 4px solid #ffd76a;
+            padding: 12px 18px; border-radius: 10px; font-size: 14px; letter-spacing: 1px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4); animation: toastIn 0.3s ease-out, toastOut 0.4s ease-in 2.6s forwards;
+        }
+        .toast b { color: #ffd76a; }
+        @keyframes toastIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes toastOut { to { transform: translateX(120%); opacity: 0; } }
+
         /* 标题页面样式 */
         .title-screen {
-            position: fixed;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            background: rgba(232, 244, 248, 0.95);
-            backdrop-filter: blur(10px);
+            position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 1000; background: rgba(232, 244, 248, 0.95); backdrop-filter: blur(10px);
         }
-        .title-main {
-            font-size: 48px;
-            font-weight: 300;
-            color: #333;
-            letter-spacing: 8px;
-            margin-bottom: 10px;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .title-sub {
-            font-size: 18px;
-            color: #666;
-            letter-spacing: 4px;
-            margin-bottom: 60px;
-        }
-        .title-buttons {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            width: 300px;
-        }
-        .title-btn {
-            padding: 16px 32px;
-            font-size: 18px;
-            color: #fff;
-            background: linear-gradient(135deg, #4488ff, #66ccff);
-            border: none;
-            border-radius: 12px;
-            cursor: pointer;
-            letter-spacing: 2px;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(68, 136, 255, 0.3);
-        }
-        .title-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(68, 136, 255, 0.4);
-        }
-        .title-btn:active {
-            transform: translateY(0);
-        }
+        .title-main { font-size: 48px; font-weight: 300; color: #333; letter-spacing: 8px; margin-bottom: 10px; text-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .title-sub { font-size: 18px; color: #666; letter-spacing: 4px; margin-bottom: 60px; }
+        .title-buttons { display: flex; flex-direction: column; gap: 20px; width: 300px; }
+        .title-btn { padding: 16px 32px; font-size: 18px; color: #fff; background: linear-gradient(135deg, #4488ff, #66ccff); border: none; border-radius: 12px; cursor: pointer; letter-spacing: 2px; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(68, 136, 255, 0.3); }
+        .title-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(68, 136, 255, 0.4); }
+        .title-btn:active { transform: translateY(0); }
+
         /* 子页面通用样式 */
-        .page-screen {
-            position: fixed;
-            inset: 0;
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 1001;
-            background: rgba(232, 244, 248, 0.97);
-            backdrop-filter: blur(10px);
-        }
+        .page-screen { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 1001; background: rgba(232, 244, 248, 0.97); backdrop-filter: blur(10px); overflow-y: auto; }
         .page-screen.show { display: flex; }
-        .page-header {
-            font-size: 36px;
-            font-weight: 300;
-            color: #333;
-            letter-spacing: 6px;
-            margin-bottom: 40px;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .page-content {
-            width: 420px;
-            max-width: 90vw;
-            background: rgba(255,255,255,0.85);
-            border-radius: 16px;
-            padding: 28px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.08);
-            margin-bottom: 30px;
-        }
-        .back-btn {
-            padding: 12px 40px;
-            font-size: 16px;
-            color: #fff;
-            background: linear-gradient(135deg, #4488ff, #66ccff);
-            border: none;
-            border-radius: 10px;
-            cursor: pointer;
-            letter-spacing: 2px;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(68, 136, 255, 0.3);
-        }
-        .back-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(68, 136, 255, 0.4);
-        }
-        .setting-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 28px;
-        }
+        .page-header { font-size: 36px; font-weight: 300; color: #333; letter-spacing: 6px; margin: 40px 0; text-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .page-content { width: 420px; max-width: 90vw; background: rgba(255,255,255,0.85); border-radius: 16px; padding: 28px; box-shadow: 0 8px 32px rgba(0,0,0,0.08); margin-bottom: 30px; }
+        .back-btn { padding: 12px 40px; font-size: 16px; color: #fff; background: linear-gradient(135deg, #4488ff, #66ccff); border: none; border-radius: 10px; cursor: pointer; letter-spacing: 2px; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(68, 136, 255, 0.3); margin-bottom: 40px; }
+        .back-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(68, 136, 255, 0.4); }
+        .setting-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
         .setting-row:last-child { margin-bottom: 0; }
-        .setting-row label {
-            font-size: 16px;
-            color: #444;
-            font-weight: 500;
-        }
-        .style-options {
-            display: flex;
-            gap: 14px;
-        }
-        .style-option {
-            width: 44px;
-            height: 44px;
-            border-radius: 10px;
-            cursor: pointer;
-            border: 3px solid transparent;
-            transition: all 0.3s;
-            position: relative;
-        }
+        .setting-row label { font-size: 16px; color: #444; font-weight: 500; }
+        .style-options { display: flex; gap: 10px; }
+        .style-option { width: 40px; height: 40px; border-radius: 10px; cursor: pointer; border: 3px solid transparent; transition: all 0.3s; position: relative; }
         .style-option:hover { transform: scale(1.12); }
         .style-option.active { border-color: #4488ff; box-shadow: 0 0 0 3px rgba(68,136,255,0.2); }
         .style-option[data-style="default"] { background: #e8f4f8; }
         .style-option[data-style="dark"] { background: #0a0a1a; }
         .style-option[data-style="warm"] { background: #faf0e6; }
         .style-option[data-style="green"] { background: #e8f8f0; }
-        .style-labels {
-            display: flex;
-            gap: 14px;
-            margin-top: 6px;
-            justify-content: flex-end;
-        }
-        .style-label {
-            width: 44px;
-            text-align: center;
-            font-size: 11px;
-            color: #666;
-        }
-        .sound-options {
-            display: flex;
-            gap: 10px;
-        }
-        .sound-option {
-            padding: 8px 16px;
-            border-radius: 8px;
-            background: rgba(0,0,0,0.06);
-            cursor: pointer;
-            font-size: 14px;
-            color: #555;
-            transition: all 0.3s;
-            border: 2px solid transparent;
-        }
+        .style-option[data-style="neon"] { background: linear-gradient(135deg,#12002e,#003049); }
+        .style-option[data-style="snow"] { background: linear-gradient(135deg,#eef5ff,#dbe6ff); }
+        .style-labels { display: flex; gap: 10px; margin-top: 6px; justify-content: flex-end; }
+        .style-label { width: 40px; text-align: center; font-size: 10px; color: #666; }
+        .sound-options { display: flex; gap: 10px; }
+        .sound-option { padding: 8px 14px; border-radius: 8px; background: rgba(0,0,0,0.06); cursor: pointer; font-size: 14px; color: #555; transition: all 0.3s; border: 2px solid transparent; }
         .sound-option:hover { background: rgba(68,136,255,0.15); }
         .sound-option.active { background: #4488ff; color: #fff; border-color: #3377ee; }
         .sound-option.active:hover { background: #3377ee; }
-        .toggle-switch { width: 40px; height: 22px; background: rgba(0,0,0,0.15); border-radius: 11px; position: relative; cursor: pointer; transition: background 0.3s; }
-        .toggle-switch.on { background: #4488ff; }
+        .toggle-switch { width: 40px; height: 22px; background: rgba(0,0,0,0.15); border-radius: 11px; position: relative; cursor: pointer; transition: background 0.3s; flex-shrink: 0; }
         .toggle-switch::after { content: ''; position: absolute; width: 18px; height: 18px; background: #fff; border-radius: 50%; top: 2px; left: 2px; transition: transform 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
         .toggle-switch.on::after { transform: translateX(18px); }
-        .history-list {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        .history-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 16px;
-            background: rgba(68,136,255,0.08);
-            border-radius: 10px;
-            font-size: 15px;
-        }
-        .history-item .rank {
-            font-weight: bold;
-            color: #4488ff;
-            width: 36px;
-            font-size: 16px;
-        }
-        .history-item .score {
-            font-weight: bold;
-            color: #333;
-            font-size: 16px;
-        }
-        .history-item .date {
-            color: #888;
-            font-size: 12px;
-        }
-        .empty-state {
-            text-align: center;
-            color: #888;
-            font-size: 15px;
-            padding: 30px 0;
-        }
-        .about-text {
-            text-align: center;
-            color: #555;
-            font-size: 15px;
-            line-height: 2;
-        }
+        .history-list { display: flex; flex-direction: column; gap: 10px; }
+        .history-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: rgba(68,136,255,0.08); border-radius: 10px; font-size: 15px; }
+        .history-item .rank { font-weight: bold; color: #4488ff; width: 36px; font-size: 16px; }
+        .history-item .score { font-weight: bold; color: #333; font-size: 16px; }
+        .history-item .date { color: #888; font-size: 12px; }
+        .empty-state { text-align: center; color: #888; font-size: 15px; padding: 30px 0; }
+        .about-text { text-align: center; color: #555; font-size: 15px; line-height: 2; }
         .about-text p { margin-bottom: 10px; }
-        .about-text .version {
-            color: #888;
-            font-size: 13px;
-            margin-top: 20px;
+        .about-text .version { color: #888; font-size: 13px; margin-top: 20px; }
+
+        @media (max-width: 640px) {
+            .info { top: 12px; left: 12px; }
+            .info h1 { font-size: 17px; }
+            .score-display { top: 12px; font-size: 20px; }
+            .target-color-display { top: 46px; padding: 8px 18px; }
+            .target-ball { width: 22px; height: 22px; }
+            .combo-display { top: 96px; font-size: 15px; }
+            .title-main { font-size: 34px; letter-spacing: 5px; }
+            .title-btn { padding: 14px 24px; font-size: 16px; }
+            .top-actions { top: 10px; right: 10px; }
+            .icon-btn { width: 36px; height: 36px; font-size: 16px; }
+            .fail-text { font-size: 34px; }
         }
     </style>
 </head>
@@ -267,12 +185,16 @@
                         <div class="style-option" data-style="dark" title="深邃星空"></div>
                         <div class="style-option" data-style="warm" title="柔和暖色"></div>
                         <div class="style-option" data-style="green" title="清新绿意"></div>
+                        <div class="style-option" data-style="neon" title="霓虹赛博"></div>
+                        <div class="style-option" data-style="snow" title="冰雪梦境"></div>
                     </div>
                     <div class="style-labels">
                         <div class="style-label">默认</div>
                         <div class="style-label">星空</div>
                         <div class="style-label">暖色</div>
                         <div class="style-label">绿意</div>
+                        <div class="style-label">霓虹</div>
+                        <div class="style-label">冰雪</div>
                     </div>
                 </div>
             </div>
@@ -287,6 +209,10 @@
             <div class="setting-row">
                 <label>粒子特效</label>
                 <div class="toggle-switch on" id="settingsParticleToggle"></div>
+            </div>
+            <div class="setting-row">
+                <label>背景音乐</label>
+                <div class="toggle-switch on" id="settingsMusicToggle"></div>
             </div>
         </div>
         <button class="back-btn" id="backFromSettings">返回</button>
@@ -307,10 +233,10 @@
         <div class="page-content about-text">
             <p style="font-size:18px; font-weight:500; color:#333; margin-bottom:16px;">3D 轨道跳跃</p>
             <p>核心玩法：控制小球在三车道轨道上跳跃，每次弹跳必须落在与目标颜色匹配的方块上。</p>
-            <p>操作方式：使用 ← → 方向键切换车道</p>
-            <p>得分机制：存活时间越长，每次跳跃得分越高，还有阶段性时间奖励。</p>
-            <p>本游戏借助小米大模型开发而成。</p>
-            <p class="version">版本 1.0</p>
+            <p>操作方式：使用 ← → 方向键切换车道（移动端滑动屏幕）。</p>
+            <p>得分机制：连击越多倍率越高，存活越久单次得分越高，还有阶段性时间奖励。</p>
+            <p>按 P 或 Esc 暂停游戏。</p>
+            <p class="version">版本 2.0</p>
         </div>
         <button class="back-btn" id="backFromAbout">返回</button>
     </div>
@@ -320,21 +246,38 @@
         <div class="info"><h1>3D 轨道跳跃</h1><p>按 ← → 切换车道</p></div>
         <div class="score-display" id="scoreDisplay">分数: 0</div>
         <div class="target-color-display"><span>目标颜色</span><div class="target-ball" id="targetBall"></div></div>
+        <div class="combo-display" id="comboDisplay"></div>
         <div class="hint">← 左方向键 | 右方向键 →</div>
         <div class="lane-indicator">
             <div class="lane-dot" id="laneDot0"></div>
             <div class="lane-dot active" id="laneDot1"></div>
             <div class="lane-dot" id="laneDot2"></div>
         </div>
+        <div class="top-actions">
+            <button class="icon-btn" id="muteBtn" title="静音">🔊</button>
+            <button class="icon-btn" id="pauseBtn" title="暂停">⏸</button>
+        </div>
+        <div class="popup-layer" id="popupLayer"></div>
+        <div class="flash-overlay green" id="greenFlash"></div>
+        <div class="flash-overlay gold" id="goldFlash"></div>
         <div class="fail-overlay" id="failOverlay">
             <div class="fail-text">你失败了</div>
             <div class="fail-sub">跳错了颜色</div>
+            <div class="fail-stats" id="failStats"></div>
             <div class="fail-buttons">
                 <button class="restart-btn" id="restartBtn">重新开始</button>
                 <button class="title-btn" id="backToTitleBtn">返回标题</button>
             </div>
         </div>
+        <div class="pause-overlay" id="pauseOverlay">
+            <div class="pause-text">已暂停</div>
+            <div class="fail-buttons">
+                <button class="restart-btn" id="resumeBtn">继续游戏</button>
+                <button class="title-btn" id="pauseToTitleBtn">返回标题</button>
+            </div>
+        </div>
     </div><!-- 结束游戏容器 -->
+    <div class="toast-layer" id="toastLayer"></div>
 
     <script type="importmap">
         { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
@@ -343,6 +286,32 @@
     <script type="module">
         import * as THREE from 'three';
 
+        // ============================================================
+        // 集中配置 CONFIG（重构：所有可调参数集中于此）
+        // ============================================================
+        const CONFIG = {
+            gravity: 9.8,
+            bounceHeight: 2.0,
+            barLength: 2.5,
+            barWidth: 1.4,
+            barHeight: 0.2,
+            minGap: 3.5,
+            maxGap: 8.5,
+            laneX: [-2.8, 0, 2.8],
+            laneCount: 3,
+            ballRadius: 1.0,
+            rampSeconds: 120,        // 达到满难度所需存活秒数
+            hazardBase: 0.05,        // 初始障碍(危险色)出现概率
+            hazardMax: 0.32,         // 满难度障碍概率
+            comboStep: 4,            // 每 N 连击提升 1 倍
+            comboMax: 8,             // 最大倍率
+            trailLength: 42,         // 拖尾点数量
+            musicEnabled: true,
+        };
+
+        // ============================================================
+        // 场景 / 相机 / 渲染器
+        // ============================================================
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0xe8f4f8);
         scene.fog = new THREE.Fog(0xe8f4f8, 40, 200);
@@ -357,12 +326,16 @@
         renderer.toneMappingExposure = 0.7;
         document.body.appendChild(renderer.domElement);
 
-        // ==================== 背景风格配置 ====================
+        // ============================================================
+        // 背景风格配置
+        // ============================================================
         const BG_STYLES = {
             default: { bg: 0xe8f4f8, fog: 0xe8f4f8, ambientColor: 0x222233, ambientIntensity: 0.6, starColor: 0x8888aa, starOpacity: 0.6, bodyBg: '#e8f4f8', screenBg: '232,244,248' },
-            dark: { bg: 0x0a0a1a, fog: 0x0a0a1a, ambientColor: 0x111133, ambientIntensity: 0.4, starColor: 0xaaccff, starOpacity: 0.9, bodyBg: '#050510', screenBg: '10,10,26' },
-            warm: { bg: 0xfaf0e6, fog: 0xfaf0e6, ambientColor: 0x332222, ambientIntensity: 0.5, starColor: 0xaa8877, starOpacity: 0.5, bodyBg: '#faf0e6', screenBg: '250,240,230' },
-            green: { bg: 0xe8f8f0, fog: 0xe8f8f0, ambientColor: 0x223322, ambientIntensity: 0.5, starColor: 0x88aa88, starOpacity: 0.5, bodyBg: '#e8f8f0', screenBg: '232,248,240' }
+            dark:    { bg: 0x0a0a1a, fog: 0x0a0a1a, ambientColor: 0x111133, ambientIntensity: 0.4, starColor: 0xaaccff, starOpacity: 0.9, bodyBg: '#050510', screenBg: '10,10,26' },
+            warm:    { bg: 0xfaf0e6, fog: 0xfaf0e6, ambientColor: 0x332222, ambientIntensity: 0.5, starColor: 0xaa8877, starOpacity: 0.5, bodyBg: '#faf0e6', screenBg: '250,240,230' },
+            green:   { bg: 0xe8f8f0, fog: 0xe8f8f0, ambientColor: 0x223322, ambientIntensity: 0.5, starColor: 0x88aa88, starOpacity: 0.5, bodyBg: '#e8f8f0', screenBg: '232,248,240' },
+            neon:    { bg: 0x0b0221, fog: 0x0b0221, ambientColor: 0x331166, ambientIntensity: 0.5, starColor: 0xff55cc, starOpacity: 0.9, bodyBg: '#0b0221', screenBg: '11,2,33' },
+            snow:    { bg: 0xeef5ff, fog: 0xeef5ff, ambientColor: 0x334455, ambientIntensity: 0.6, starColor: 0xaaccff, starOpacity: 0.7, bodyBg: '#eef5ff', screenBg: '238,245,255' },
         };
         let currentBgStyle = localStorage.getItem('bgStyle') || 'default';
 
@@ -376,98 +349,88 @@
             starsMaterial.color = new THREE.Color(style.starColor);
             starsMaterial.opacity = style.starOpacity;
             document.body.style.background = style.bodyBg;
-            // 更新标题页面和子页面背景
-            const opacity = styleName === 'dark' ? '0.92' : '0.97';
+            const opacity = styleName === 'dark' || styleName === 'neon' ? '0.92' : '0.97';
             const screenBg = 'rgba(' + style.screenBg + ',' + opacity + ')';
-            document.querySelectorAll('.title-screen, .page-screen').forEach(el => {
-                el.style.background = screenBg;
-            });
-            // 更新页面内容卡片颜色（深色模式下调整）
-            document.querySelectorAll('.page-content').forEach(el => {
-                if (styleName === 'dark') {
-                    el.style.background = 'rgba(30,30,50,0.9)';
-                } else {
-                    el.style.background = 'rgba(255,255,255,0.85)';
-                }
-            });
-            // 更新文字颜色
-            document.querySelectorAll('.page-header, .title-main').forEach(el => {
-                el.style.color = styleName === 'dark' ? '#eee' : '#333';
-            });
-            document.querySelectorAll('.title-sub').forEach(el => {
-                el.style.color = styleName === 'dark' ? '#aaa' : '#666';
-            });
-            document.querySelectorAll('.setting-row label').forEach(el => {
-                el.style.color = styleName === 'dark' ? '#ccc' : '#444';
-            });
-            document.querySelectorAll('.about-text').forEach(el => {
-                el.style.color = styleName === 'dark' ? '#bbb' : '#555';
-            });
-            // 更新about-text内的p标签颜色
-            document.querySelectorAll('.about-text p').forEach(el => {
-                el.style.color = styleName === 'dark' ? '#bbb' : '#555';
-            });
-            document.querySelectorAll('.about-text .version').forEach(el => {
-                el.style.color = styleName === 'dark' ? '#888' : '#888';
-            });
+            document.querySelectorAll('.title-screen, .page-screen').forEach(el => { el.style.background = screenBg; });
+            const isDark = (styleName === 'dark' || styleName === 'neon');
+            document.querySelectorAll('.page-content').forEach(el => { el.style.background = isDark ? 'rgba(30,30,50,0.9)' : 'rgba(255,255,255,0.85)'; });
+            document.querySelectorAll('.page-header, .title-main').forEach(el => { el.style.color = isDark ? '#eee' : '#333'; });
+            document.querySelectorAll('.title-sub').forEach(el => { el.style.color = isDark ? '#aaa' : '#666'; });
+            document.querySelectorAll('.setting-row label').forEach(el => { el.style.color = isDark ? '#ccc' : '#444'; });
+            document.querySelectorAll('.about-text, .about-text p').forEach(el => { el.style.color = isDark ? '#bbb' : '#555'; });
+            document.querySelectorAll('.about-text .version').forEach(el => { el.style.color = '#888'; });
         }
 
-        // ==================== 颜色定义 ====================
+        // ============================================================
+        // 颜色定义（新增第 4 种「危险色」用于障碍）
+        // ============================================================
         const COLOR_NAMES = ['薄荷绿', '薰衣草紫', '天空蓝'];
         const COLOR_VALUES = [0x44ffaa, 0xaa88ff, 0x66ccff];
         const COLOR_CSS = ['#44ffaa', '#aa88ff', '#66ccff'];
+        const HAZARD_INDEX = 3;
+        const HAZARD_VALUE = 0xff3355;
+        const HAZARD_CSS = '#ff3355';
 
-        // ==================== 物理常数 ====================
-        const G = 9.8;
-        const BOUNCE_HEIGHT = 2.0;
-        const BAR_LENGTH = 2.5;
-        const BAR_WIDTH = 1.4;
-        const BAR_HEIGHT = 0.2;
-        const MIN_GAP = 3.5;
-        const MAX_GAP = 7.0;
-        const LANE_X = [-2.8, 0, 2.8];
-        const LANE_COUNT = 3;
-        const BALL_RADIUS = 1.0;
-        const V0 = Math.sqrt(2 * G * BOUNCE_HEIGHT);
-        const FLIGHT_TIME = 2 * V0 / G;
+        // ============================================================
+        // 物理派生量
+        // ============================================================
+        const V0 = Math.sqrt(2 * CONFIG.gravity * CONFIG.bounceHeight);
+        const FLIGHT_TIME = 2 * V0 / CONFIG.gravity;
 
-        // ==================== 球体组 ====================
+        // ============================================================
+        // 球体组
+        // ============================================================
         const ballGroup = new THREE.Group();
         scene.add(ballGroup);
 
-        // ==================== 轨道系统 ====================
+        // ============================================================
+        // 轨道系统
+        // ============================================================
         const trackGroup = new THREE.Group();
         scene.add(trackGroup);
 
         const barZPositions = [5];
         const barColors = [];
+        let difficulty = 0; // 0..1，随存活时间增长
+
         function randomColorIndex() { return Math.floor(Math.random() * 3); }
-        function generateBarColors() {
-            const arr = [0, 1, 2];
+        function shuffleArray(arr) {
             for (let i = arr.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [arr[i], arr[j]] = [arr[j], arr[i]];
             }
             return arr;
         }
-        function generateNextGap() {
-            const gap = MIN_GAP + Math.random() * (MAX_GAP - MIN_GAP);
-            barZPositions.push(barZPositions[barZPositions.length - 1] - gap);
-            barColors.push(generateBarColors());
+        function normalRow() { return shuffleArray([0, 1, 2]); }
+        function hazardRow() {
+            const hazardLane = Math.floor(Math.random() * 3);
+            const colors = shuffleArray([0, 1, 2]);
+            const row = [];
+            let ci = 0;
+            for (let lane = 0; lane < 3; lane++) row.push(lane === hazardLane ? HAZARD_INDEX : colors[ci++]);
+            return row;
         }
-        barColors.push(generateBarColors());
+        function generateNextGap() {
+            const gap = CONFIG.minGap + (CONFIG.maxGap - CONFIG.minGap) * (0.15 + 0.85 * difficulty);
+            barZPositions.push(barZPositions[barZPositions.length - 1] - gap);
+            const hazardChance = CONFIG.hazardBase + (CONFIG.hazardMax - CONFIG.hazardBase) * difficulty;
+            barColors.push(Math.random() < hazardChance ? hazardRow() : normalRow());
+        }
+        barColors.push(normalRow());
         for (let i = 0; i < 200; i++) generateNextGap();
 
-        // 轨道材质：颜色清晰可辨，适度自发光确保暗处可见
-        const barMaterials = COLOR_VALUES.map((c, i) => new THREE.MeshStandardMaterial({
-            color: c, roughness: 0.7, metalness: 0.1,
-            emissive: c, emissiveIntensity: 0.15,
+        // 轨道材质：3 种普通色 + 1 种危险色
+        const barMaterials = COLOR_VALUES.map((c) => new THREE.MeshStandardMaterial({
+            color: c, roughness: 0.7, metalness: 0.1, emissive: c, emissiveIntensity: 0.15,
+        }));
+        barMaterials.push(new THREE.MeshStandardMaterial({
+            color: HAZARD_VALUE, roughness: 0.4, metalness: 0.3, emissive: HAZARD_VALUE, emissiveIntensity: 0.6,
         }));
 
-        const barGeo = new THREE.BoxGeometry(BAR_WIDTH, BAR_HEIGHT, BAR_LENGTH);
+        const barGeo = new THREE.BoxGeometry(CONFIG.barWidth, CONFIG.barHeight, CONFIG.barLength);
         const MAX_VISIBLE_BARS = 60;
         const barPool = [];
-        for (let i = 0; i < MAX_VISIBLE_BARS * LANE_COUNT; i++) {
+        for (let i = 0; i < MAX_VISIBLE_BARS * CONFIG.laneCount; i++) {
             const bar = new THREE.Mesh(barGeo, barMaterials[0]);
             bar.visible = false;
             bar.castShadow = false;
@@ -483,25 +446,23 @@
             for (let i = startIdx; i <= endIdx && poolIdx < barPool.length; i++) {
                 const z = barZPositions[i];
                 const laneColors = barColors[i];
-                for (let lane = 0; lane < LANE_COUNT; lane++) {
+                for (let lane = 0; lane < CONFIG.laneCount; lane++) {
                     const bar = barPool[poolIdx];
                     bar.userData.barIndex = i;
                     bar.userData.lane = lane;
-                    bar.position.set(LANE_X[lane], -BAR_HEIGHT / 2, z);
+                    bar.position.set(CONFIG.laneX[lane], -CONFIG.barHeight / 2, z);
                     bar.visible = true;
-                    
                     // 冲击下陷动画
                     if (bar.userData.impactTime && currentTime - bar.userData.impactTime < 0.25) {
                         const t = (currentTime - bar.userData.impactTime) / 0.25;
                         const sink = Math.sin(t * Math.PI) * 0.35;
                         bar.scale.y = 1 - sink;
-                        bar.position.y = -BAR_HEIGHT / 2 - sink * BAR_HEIGHT * 0.5;
+                        bar.position.y = -CONFIG.barHeight / 2 - sink * CONFIG.barHeight * 0.5;
                     } else {
                         bar.scale.y = 1;
-                        bar.position.y = -BAR_HEIGHT / 2;
+                        bar.position.y = -CONFIG.barHeight / 2;
                         bar.userData.impactTime = null;
                     }
-                    
                     bar.material = barMaterials[laneColors[lane]];
                     poolIdx++;
                 }
@@ -509,28 +470,21 @@
             for (let j = poolIdx; j < barPool.length; j++) barPool[j].visible = false;
         }
 
-        // ==================== 球体 ====================
+        // ============================================================
+        // 球体
+        // ============================================================
         let currentSphere = null, currentAtmosphere = null, currentGlow = null;
         function createSphere(colorIdx) {
             const color = new THREE.Color(COLOR_VALUES[colorIdx]);
-            const geo = new THREE.SphereGeometry(BALL_RADIUS, 64, 64);
-            const mat = new THREE.MeshStandardMaterial({ 
-                color, 
-                roughness: 0.2, 
-                metalness: 0.7,
-                emissive: color,
-                emissiveIntensity: 0.3
-            });
+            const geo = new THREE.SphereGeometry(CONFIG.ballRadius, 64, 64);
+            const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.2, metalness: 0.7, emissive: color, emissiveIntensity: 0.3 });
             const sphere = new THREE.Mesh(geo, mat);
             sphere.castShadow = true; sphere.receiveShadow = true;
             return sphere;
         }
         function updateSphereColor(colorIdx) {
             const color = new THREE.Color(COLOR_VALUES[colorIdx]);
-            if (currentSphere) {
-                currentSphere.material.color.copy(color);
-                currentSphere.material.emissive.copy(color);
-            }
+            if (currentSphere) { currentSphere.material.color.copy(color); currentSphere.material.emissive.copy(color); }
             if (currentAtmosphere) currentAtmosphere.material.color.copy(color);
             if (currentGlow) currentGlow.material.color.copy(color);
         }
@@ -547,13 +501,138 @@
             currentGlow = new THREE.Mesh(glowGeo, glowMat); ballGroup.add(currentGlow);
         }
 
-        // ==================== UI ====================
+        // ============================================================
+        // 拖尾（画面反馈）
+        // ============================================================
+        const TRAIL_LENGTH = CONFIG.trailLength;
+        const trailHistory = [];
+        const trailPositions = new Float32Array(TRAIL_LENGTH * 3);
+        const trailColors = new Float32Array(TRAIL_LENGTH * 3);
+        const trailGeo = new THREE.BufferGeometry();
+        trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+        trailGeo.setAttribute('color', new THREE.BufferAttribute(trailColors, 3));
+        const trailMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 1.0, blending: THREE.AdditiveBlending, depthWrite: false });
+        const trailLine = new THREE.Line(trailGeo, trailMat);
+        trailLine.frustumCulled = false;
+        scene.add(trailLine);
+
+        function updateTrail(colorIdx, x, y, z) {
+            const color = new THREE.Color(COLOR_VALUES[colorIdx]);
+            trailHistory.push({ x, y, z, color });
+            if (trailHistory.length > TRAIL_LENGTH) trailHistory.shift();
+            for (let i = 0; i < trailHistory.length; i++) {
+                const p = trailHistory[i];
+                const i3 = i * 3;
+                trailPositions[i3] = p.x;
+                trailPositions[i3 + 1] = p.y;
+                trailPositions[i3 + 2] = p.z;
+                const fade = (i + 1) / trailHistory.length;
+                trailColors[i3] = p.color.r * fade;
+                trailColors[i3 + 1] = p.color.g * fade;
+                trailColors[i3 + 2] = p.color.b * fade;
+            }
+            // 未填充部分退到同一点，避免残影
+            for (let i = trailHistory.length; i < TRAIL_LENGTH; i++) {
+                const i3 = i * 3;
+                trailPositions[i3] = x; trailPositions[i3 + 1] = y; trailPositions[i3 + 2] = z;
+                trailColors[i3] = 0; trailColors[i3 + 1] = 0; trailColors[i3 + 2] = 0;
+            }
+            trailGeo.attributes.position.needsUpdate = true;
+            trailGeo.attributes.color.needsUpdate = true;
+            trailGeo.setDrawRange(0, trailHistory.length);
+        }
+        function clearTrail() { trailHistory.length = 0; trailGeo.setDrawRange(0, 0); }
+
+        // ============================================================
+        // 命中粒子爆发（画面反馈）
+        // ============================================================
+        const burstParticles = [];
+        function addBurst(x, y, z, colorValue) {
+            const count = 14;
+            const color = new THREE.Color(colorValue);
+            for (let i = 0; i < count; i++) {
+                const geo = new THREE.SphereGeometry(0.05 + Math.random() * 0.07, 8, 8);
+                const mat = new THREE.MeshBasicMaterial({ color: color.clone().offsetHSL(Math.random() * 0.1 - 0.05, 0, Math.random() * 0.2 - 0.1), transparent: true, opacity: 1 });
+                const p = new THREE.Mesh(geo, mat);
+                p.position.set(x, y, z);
+                const dir = new THREE.Vector3((Math.random() - 0.5), Math.random() * 0.8, (Math.random() - 0.5)).normalize();
+                const speed = 2 + Math.random() * 4;
+                scene.add(p);
+                burstParticles.push({ mesh: p, vel: dir.multiplyScalar(speed), life: 0.5 + Math.random() * 0.3 });
+            }
+        }
+        function updateBursts(dt) {
+            for (let i = burstParticles.length - 1; i >= 0; i--) {
+                const b = burstParticles[i];
+                b.life -= dt;
+                b.vel.y -= 6 * dt;
+                b.mesh.position.addScaledVector(b.vel, dt);
+                b.mesh.material.opacity = Math.max(0, b.life / 0.5);
+                if (b.life <= 0) {
+                    scene.remove(b.mesh);
+                    b.mesh.geometry.dispose();
+                    b.mesh.material.dispose();
+                    burstParticles.splice(i, 1);
+                }
+            }
+        }
+
+        // ============================================================
+        // UI 元素
+        // ============================================================
         const targetBallEl = document.getElementById('targetBall');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const comboDisplay = document.getElementById('comboDisplay');
+        const popupLayer = document.getElementById('popupLayer');
+        const greenFlash = document.getElementById('greenFlash');
+        const goldFlash = document.getElementById('goldFlash');
+        const failStats = document.getElementById('failStats');
+        const muteBtn = document.getElementById('muteBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+
         function updateTargetColorUI(colorIdx) {
             targetBallEl.style.backgroundColor = COLOR_CSS[colorIdx];
             targetBallEl.style.color = COLOR_CSS[colorIdx];
         }
+        function updateScoreUI() { scoreDisplay.textContent = '分数: ' + score; }
 
+        function showCombo(combo, mult) {
+            if (combo >= 2) {
+                comboDisplay.textContent = '连击 x' + combo + (mult > 1 ? '  ·  ' + mult + '倍' : '');
+                comboDisplay.classList.add('show');
+                comboDisplay.classList.remove('pop');
+                void comboDisplay.offsetWidth;
+                comboDisplay.classList.add('pop');
+            } else {
+                comboDisplay.classList.remove('show');
+            }
+        }
+
+        function showPopup(x, y, text, color) {
+            const el = document.createElement('div');
+            el.className = 'score-popup';
+            el.textContent = text;
+            el.style.left = x + 'px';
+            el.style.top = y + 'px';
+            el.style.color = color || '#fff';
+            popupLayer.appendChild(el);
+            setTimeout(() => el.remove(), 950);
+        }
+
+        function flashGreen() { greenFlash.style.transition = 'none'; greenFlash.style.opacity = '1'; void greenFlash.offsetWidth; greenFlash.style.transition = 'opacity 0.4s'; greenFlash.style.opacity = '0'; }
+        function flashGold() { goldFlash.style.transition = 'none'; goldFlash.style.opacity = '1'; void goldFlash.offsetWidth; goldFlash.style.transition = 'opacity 0.4s'; goldFlash.style.opacity = '0'; }
+
+        function showToast(title, desc) {
+            const el = document.createElement('div');
+            el.className = 'toast';
+            el.innerHTML = '<b>' + title + '</b><br>' + desc;
+            document.getElementById('toastLayer').appendChild(el);
+            setTimeout(() => el.remove(), 3000);
+        }
+
+        // ============================================================
+        // 粒子环绕
+        // ============================================================
         const particlesGroup = new THREE.Group();
         ballGroup.add(particlesGroup);
         for (let i = 0; i < 30; i++) {
@@ -571,19 +650,65 @@
         let particlesEnabled = localStorage.getItem('particlesEnabled') !== 'false';
         particlesGroup.visible = particlesEnabled;
 
-        // ==================== 键盘 ====================
-        let currentLane = 1, targetLaneX = LANE_X[1], currentLaneX = LANE_X[1];
+        // ============================================================
+        // 键盘 + 触控
+        // ============================================================
+        let currentLane = 1, targetLaneX = CONFIG.laneX[1], currentLaneX = CONFIG.laneX[1];
         function updateLaneDots() { for (let i = 0; i < 3; i++) document.getElementById('laneDot' + i).classList.toggle('active', i === currentLane); }
+
+        function moveLane(delta) {
+            const next = Math.max(0, Math.min(2, currentLane + delta));
+            if (next === currentLane) return;
+            currentLane = next;
+            targetLaneX = CONFIG.laneX[currentLane];
+            updateLaneDots();
+            audio.playLaneChange();
+        }
+
         document.addEventListener('keydown', (e) => {
+            if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
+                if (gameState === 'playing') pauseGame();
+                else if (gameState === 'paused') resumeGame();
+                return;
+            }
             if (gameState !== 'playing' || !canControl) return;
-            if (e.key === 'ArrowLeft' && currentLane > 0) { currentLane--; targetLaneX = LANE_X[currentLane]; updateLaneDots(); }
-            else if (e.key === 'ArrowRight' && currentLane < 2) { currentLane++; targetLaneX = LANE_X[currentLane]; updateLaneDots(); }
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') moveLane(-1);
+            else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') moveLane(1);
         });
 
-        // ==================== 灯光（均匀照明，颜色清晰） ====================
+        // 移动端触控：滑动或点击左右半屏
+        let touchStartX = null, touchStartY = null;
+        document.addEventListener('touchstart', (e) => {
+            if (gameState !== 'playing') return;
+            const t = e.touches[0];
+            touchStartX = t.clientX; touchStartY = t.clientY;
+        }, { passive: true });
+        document.addEventListener('touchmove', (e) => {
+            if (touchStartX === null || gameState !== 'playing') return;
+            e.preventDefault();
+            const t = e.touches[0];
+            const dx = t.clientX - touchStartX;
+            const dy = t.clientY - touchStartY;
+            if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+                moveLane(dx < 0 ? -1 : 1);
+                touchStartX = t.clientX; touchStartY = t.clientY;
+            }
+        }, { passive: false });
+        document.addEventListener('touchend', (e) => {
+            if (touchStartX !== null) {
+                const dx = e.changedTouches[0].clientX - touchStartX;
+                if (Math.abs(dx) < 20) {
+                    moveLane(e.changedTouches[0].clientX < window.innerWidth / 2 ? -1 : 1);
+                }
+            }
+            touchStartX = null; touchStartY = null;
+        }, { passive: true });
+
+        // ============================================================
+        // 灯光
+        // ============================================================
         const ambientLight = new THREE.AmbientLight(0x222233, 0.6);
         scene.add(ambientLight);
-
         const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);
         mainLight.position.set(5, 12, 8);
         mainLight.castShadow = true;
@@ -597,17 +722,16 @@
         mainLight.shadow.camera.bottom = -20;
         mainLight.shadow.bias = -0.001;
         scene.add(mainLight);
-
         const fillLight = new THREE.DirectionalLight(0x445588, 0.4);
         fillLight.position.set(-8, 6, -2);
         scene.add(fillLight);
-
-        // 球专用补光（白色点光源，近距离照亮球体）
         const ballLight = new THREE.PointLight(0xffffff, 2.0, 12);
         ballLight.position.set(0, 2, 2);
         scene.add(ballLight);
 
-        // ==================== 星空 ====================
+        // ============================================================
+        // 星空
+        // ============================================================
         const starsGeometry = new THREE.BufferGeometry();
         const starCount = 3000;
         const starPositions = new Float32Array(starCount * 3);
@@ -625,305 +749,190 @@
         const stars = new THREE.Points(starsGeometry, starsMaterial);
         scene.add(stars);
 
-        // ==================== 音效 ====================
-        let audioContext = null;
-        function initAudio() {
-            if (!audioContext) {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            }
-        }
-
-        let soundType = localStorage.getItem('soundType') || 'bell';
-
-        // Do到Si七个音调（C大调音阶）
+        // ============================================================
+        // 音效与音乐（重构为 AudioManager 类）
+        // ============================================================
         const C_MAJOR = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88];
         const C_MAJOR_HIGH = [523.25, 587.33, 659.25, 698.46, 783.99, 880.00, 987.77];
         const C_MAJOR_LOW = [130.81, 146.83, 164.81, 174.61, 196.00, 220.00, 246.94];
+        const PENTATONIC = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25];
 
-        function playCollisionSound() {
-            initAudio();
-            const now = audioContext.currentTime;
-            
-            if (soundType === 'bell') {
-                // ===== 铃铛音效 =====
-                const baseFreq = C_MAJOR_HIGH[Math.floor(Math.random() * C_MAJOR_HIGH.length)];
-                
-                // 主音 - 正弦波
-                const osc1 = audioContext.createOscillator();
-                const gain1 = audioContext.createGain();
-                osc1.type = 'sine';
-                osc1.frequency.setValueAtTime(baseFreq, now);
-                osc1.frequency.exponentialRampToValueAtTime(baseFreq * 0.97, now + 0.18);
-                gain1.gain.setValueAtTime(0, now);
-                gain1.gain.linearRampToValueAtTime(0.22, now + 0.004);
-                gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-                osc1.connect(gain1);
-                gain1.connect(audioContext.destination);
-                osc1.start(now);
-                osc1.stop(now + 0.22);
-                
-                // 高八度泛音
-                const osc2 = audioContext.createOscillator();
-                const gain2 = audioContext.createGain();
-                osc2.type = 'sine';
-                osc2.frequency.setValueAtTime(baseFreq * 2.01, now);
-                gain2.gain.setValueAtTime(0, now);
-                gain2.gain.linearRampToValueAtTime(0.08, now + 0.003);
-                gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-                osc2.connect(gain2);
-                gain2.connect(audioContext.destination);
-                osc2.start(now);
-                osc2.stop(now + 0.14);
-                
-                // 高频三角波"叮"声
-                const osc3 = audioContext.createOscillator();
-                const gain3 = audioContext.createGain();
-                const filter3 = audioContext.createBiquadFilter();
-                osc3.type = 'triangle';
-                osc3.frequency.setValueAtTime(baseFreq * 3, now);
-                filter3.type = 'highpass';
-                filter3.frequency.setValueAtTime(2000, now);
-                gain3.gain.setValueAtTime(0, now);
-                gain3.gain.linearRampToValueAtTime(0.035, now + 0.002);
-                gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-                osc3.connect(filter3);
-                filter3.connect(gain3);
-                gain3.connect(audioContext.destination);
-                osc3.start(now);
-                osc3.stop(now + 0.08);
-                
-                // 短促click
-                const noiseBuffer = audioContext.createBuffer(1, audioContext.sampleRate * 0.01, audioContext.sampleRate);
-                const noiseData = noiseBuffer.getChannelData(0);
-                for (let i = 0; i < noiseData.length; i++) {
-                    noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (noiseData.length * 0.3));
+        class AudioManager {
+            constructor() {
+                this.ctx = null;
+                this.master = null;
+                this.musicGain = null;
+                this.muted = localStorage.getItem('audioMuted') === '1';
+                this.musicOn = localStorage.getItem('musicEnabled') !== 'false';
+                this.volume = 0.8;
+                this.musicPlaying = false;
+                this.nextNoteTime = 0;
+                this.step = 0;
+                this.musicTimer = null;
+                this.musicSeq = [0, 2, 4, 2, 3, 2, 4, 1, 0, 2, 4, 5, 7, 4, 2, 1];
+            }
+            ensure() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    this.master = this.ctx.createGain();
+                    this.master.gain.value = this.muted ? 0 : this.volume;
+                    this.master.connect(this.ctx.destination);
+                    this.musicGain = this.ctx.createGain();
+                    this.musicGain.gain.value = 0.18;
+                    this.musicGain.connect(this.master);
                 }
-                const noise = audioContext.createBufferSource();
-                noise.buffer = noiseBuffer;
-                const noiseGain = audioContext.createGain();
-                const noiseFilter = audioContext.createBiquadFilter();
-                noiseFilter.type = 'bandpass';
-                noiseFilter.frequency.setValueAtTime(4000, now);
-                noiseFilter.Q.setValueAtTime(1.5, now);
-                noiseGain.gain.setValueAtTime(0.04, now);
-                noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
-                noise.connect(noiseFilter);
-                noiseFilter.connect(noiseGain);
-                noiseGain.connect(audioContext.destination);
-                noise.start(now);
-                noise.stop(now + 0.03);
-                
-            } else if (soundType === 'piano') {
-                // ===== 钢琴音效 =====
-                const baseFreq = C_MAJOR[Math.floor(Math.random() * C_MAJOR.length)];
-                
-                // 主音 - 三角波+低通，模拟钢琴击弦
-                const osc = audioContext.createOscillator();
-                const gain = audioContext.createGain();
-                const filter = audioContext.createBiquadFilter();
-                
-                osc.type = 'triangle';
-                osc.frequency.setValueAtTime(baseFreq, now);
-                
-                filter.type = 'lowpass';
-                filter.frequency.setValueAtTime(3500, now);
-                filter.Q.setValueAtTime(0.8, now);
-                
-                gain.gain.setValueAtTime(0, now);
-                gain.gain.linearRampToValueAtTime(0.32, now + 0.006);
-                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-                
-                osc.connect(filter);
-                filter.connect(gain);
-                gain.connect(audioContext.destination);
-                
-                osc.start(now);
-                osc.stop(now + 0.4);
-                
-                // 第二泛音（模拟钢琴共鸣）
-                const osc2 = audioContext.createOscillator();
-                const gain2 = audioContext.createGain();
-                const filter2 = audioContext.createBiquadFilter();
-                osc2.type = 'sine';
-                osc2.frequency.setValueAtTime(baseFreq * 2, now);
-                filter2.type = 'lowpass';
-                filter2.frequency.setValueAtTime(5000, now);
-                gain2.gain.setValueAtTime(0, now);
-                gain2.gain.linearRampToValueAtTime(0.07, now + 0.004);
-                gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-                osc2.connect(filter2);
-                filter2.connect(gain2);
-                gain2.connect(audioContext.destination);
-                osc2.start(now);
-                osc2.stop(now + 0.25);
-                
-                // 高频谐波
-                const osc3 = audioContext.createOscillator();
-                const gain3 = audioContext.createGain();
-                osc3.type = 'sine';
-                osc3.frequency.setValueAtTime(baseFreq * 3, now);
-                gain3.gain.setValueAtTime(0, now);
-                gain3.gain.linearRampToValueAtTime(0.025, now + 0.003);
-                gain3.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-                osc3.connect(gain3);
-                gain3.connect(audioContext.destination);
-                osc3.start(now);
-                osc3.stop(now + 0.12);
-                
-            } else if (soundType === 'guitar') {
-                // ===== 吉他音效 =====
-                const baseFreq = C_MAJOR_LOW[Math.floor(Math.random() * C_MAJOR_LOW.length)];
-                
-                // 主弦 - 锯齿波+低通
-                const osc = audioContext.createOscillator();
-                const gain = audioContext.createGain();
-                const filter = audioContext.createBiquadFilter();
-                
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(baseFreq, now);
-                
-                filter.type = 'lowpass';
-                filter.frequency.setValueAtTime(2200, now);
-                filter.frequency.exponentialRampToValueAtTime(1200, now + 0.15);
-                filter.Q.setValueAtTime(2.5, now);
-                
-                gain.gain.setValueAtTime(0, now);
-                gain.gain.linearRampToValueAtTime(0.28, now + 0.01);
-                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-                
-                osc.connect(filter);
-                filter.connect(gain);
-                gain.connect(audioContext.destination);
-                
-                osc.start(now);
-                osc.stop(now + 0.5);
-                
-                // 副弦（轻微失谐，模拟吉他双弦效果）
-                const osc2 = audioContext.createOscillator();
-                const gain2 = audioContext.createGain();
-                const filter2 = audioContext.createBiquadFilter();
-                osc2.type = 'sawtooth';
-                osc2.frequency.setValueAtTime(baseFreq * 1.005, now);
-                filter2.type = 'lowpass';
-                filter2.frequency.setValueAtTime(2000, now);
-                filter2.frequency.exponentialRampToValueAtTime(1100, now + 0.12);
-                gain2.gain.setValueAtTime(0, now);
-                gain2.gain.linearRampToValueAtTime(0.18, now + 0.008);
-                gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-                osc2.connect(filter2);
-                filter2.connect(gain2);
-                gain2.connect(audioContext.destination);
-                osc2.start(now);
-                osc2.stop(now + 0.4);
-                
-                // 拨弦高频click
-                const clickBuffer = audioContext.createBuffer(1, audioContext.sampleRate * 0.005, audioContext.sampleRate);
-                const clickData = clickBuffer.getChannelData(0);
-                for (let i = 0; i < clickData.length; i++) {
-                    clickData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (clickData.length * 0.2));
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+            }
+            setMuted(m) {
+                this.muted = m;
+                localStorage.setItem('audioMuted', m ? '1' : '0');
+                if (this.ctx && this.master) this.master.gain.setTargetAtTime(m ? 0 : this.volume, this.ctx.currentTime, 0.02);
+            }
+            setMusicOn(on) {
+                this.musicOn = on;
+                localStorage.setItem('musicEnabled', on ? 'true' : 'false');
+                if (on) this.startMusic();
+                else this.stopMusic();
+            }
+            playTone(freq, type, gainVal, duration, filterFreq, filterType) {
+                this.ensure();
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = type || 'sine';
+                osc.frequency.setValueAtTime(freq, now);
+                let node = osc;
+                if (filterFreq) {
+                    const filter = this.ctx.createBiquadFilter();
+                    filter.type = filterType || 'lowpass';
+                    filter.frequency.setValueAtTime(filterFreq, now);
+                    node.connect(filter);
+                    node = filter;
                 }
-                const click = audioContext.createBufferSource();
-                click.buffer = clickBuffer;
-                const clickGain = audioContext.createGain();
-                const clickFilter = audioContext.createBiquadFilter();
-                clickFilter.type = 'bandpass';
-                clickFilter.frequency.setValueAtTime(2500, now);
-                clickFilter.Q.setValueAtTime(2, now);
-                clickGain.gain.setValueAtTime(0.06, now);
-                clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
-                click.connect(clickFilter);
-                clickFilter.connect(clickGain);
-                clickGain.connect(audioContext.destination);
-                click.start(now);
-                click.stop(now + 0.02);
+                gain.gain.setValueAtTime(0, now);
+                gain.gain.linearRampToValueAtTime(gainVal, now + 0.005);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+                node.connect(gain);
+                gain.connect(this.master);
+                osc.start(now);
+                osc.stop(now + duration);
+            }
+            playCollision() {
+                this.ensure();
+                if (soundType === 'bell') {
+                    const baseFreq = C_MAJOR_HIGH[Math.floor(Math.random() * C_MAJOR_HIGH.length)];
+                    this.playTone(baseFreq, 'sine', 0.22, 0.22);
+                    this.playTone(baseFreq * 2.01, 'sine', 0.08, 0.14);
+                    this.playTone(baseFreq * 3, 'triangle', 0.035, 0.08, 2000, 'highpass');
+                } else if (soundType === 'piano') {
+                    const baseFreq = C_MAJOR[Math.floor(Math.random() * C_MAJOR.length)];
+                    this.playTone(baseFreq, 'triangle', 0.32, 0.4, 3500, 'lowpass');
+                    this.playTone(baseFreq * 2, 'sine', 0.07, 0.25, 5000, 'lowpass');
+                    this.playTone(baseFreq * 3, 'sine', 0.025, 0.12);
+                } else { // guitar
+                    const baseFreq = C_MAJOR_LOW[Math.floor(Math.random() * C_MAJOR_LOW.length)];
+                    this.playTone(baseFreq, 'sawtooth', 0.28, 0.5, 2200, 'lowpass');
+                    this.playTone(baseFreq * 1.005, 'sawtooth', 0.18, 0.4, 2000, 'lowpass');
+                }
+            }
+            playLaneChange() { this.playTone(660, 'sine', 0.08, 0.08); }
+            playCombo() { this.playTone(880, 'sine', 0.1, 0.15); this.playTone(1320, 'sine', 0.08, 0.2); }
+            startMusic() {
+                if (!this.musicOn || this.musicPlaying) return;
+                this.ensure();
+                this.musicPlaying = true;
+                this.nextNoteTime = this.ctx.currentTime + 0.1;
+                this.step = 0;
+                const self = this;
+                const schedule = () => {
+                    if (!self.musicPlaying) return;
+                    while (self.nextNoteTime < self.ctx.currentTime + 0.25) {
+                        self.scheduleStep(self.step, self.nextNoteTime);
+                        self.nextNoteTime += 0.24;
+                        self.step++;
+                    }
+                    self.musicTimer = setTimeout(schedule, 120);
+                };
+                schedule();
+            }
+            scheduleStep(step, t) {
+                const idx = this.musicSeq[step % this.musicSeq.length];
+                const freq = PENTATONIC[idx % PENTATONIC.length];
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, t);
+                gain.gain.setValueAtTime(0, t);
+                gain.gain.linearRampToValueAtTime(0.05, t + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+                osc.connect(gain); gain.connect(this.musicGain);
+                osc.start(t); osc.stop(t + 0.4);
+            }
+            stopMusic() {
+                this.musicPlaying = false;
+                if (this.musicTimer) { clearTimeout(this.musicTimer); this.musicTimer = null; }
             }
         }
-        
-        function playFailSound() {
-            initAudio();
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            const filter = audioContext.createBiquadFilter();
-            
-            oscillator.connect(filter);
-            filter.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            
-            oscillator.type = 'sine';
-            filter.type = 'lowpass';
-            filter.frequency.setValueAtTime(1500, audioContext.currentTime);
-            filter.frequency.exponentialRampToValueAtTime(300, audioContext.currentTime + 1.2);
-            
-            oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
-            oscillator.frequency.exponentialRampToValueAtTime(220, audioContext.currentTime + 1.0);
-            
-            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 1.5);
-            
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 1.5);
-        }
+        const audio = new AudioManager();
+        let soundType = localStorage.getItem('soundType') || 'bell';
 
-        // ==================== 碰撞动画 ====================
+        // ============================================================
+        // 碰撞涟漪动画
+        // ============================================================
         const collisionAnimations = [];
-        
-        // 方块形状涟漪扩散（颜色与碰撞方块一致）
         function addCollisionAnimation(barIndex, lane, color) {
             if (barIndex < 0 || barIndex >= barZPositions.length) return;
-            if (lane < 0 || lane >= LANE_COUNT) return;
-            
+            if (lane < 0 || lane >= CONFIG.laneCount) return;
             const baseTime = clock.getElapsedTime();
-            const x = LANE_X[lane];
-            const y = BAR_HEIGHT / 2 + 0.01;
+            const x = CONFIG.laneX[lane];
+            const y = CONFIG.barHeight / 2 + 0.01;
             const z = barZPositions[barIndex];
-            
             const group = new THREE.Group();
             const lineWidth = 0.12;
-            const halfW = BAR_WIDTH / 2 + 0.1;
-            const halfL = BAR_LENGTH / 2 + 0.1;
-            
-            const planeGeoH = new THREE.PlaneGeometry(BAR_WIDTH + 0.2, lineWidth);
-            const planeGeoV = new THREE.PlaneGeometry(lineWidth, BAR_LENGTH + 0.2);
-            const material = new THREE.MeshBasicMaterial({
-                color: color,
-                transparent: true,
-                opacity: 1.0,
-                side: THREE.DoubleSide
-            });
-            
-            const front = new THREE.Mesh(planeGeoH, material.clone());
-            front.position.set(0, 0, halfL);
-            front.rotation.x = -Math.PI / 2;
-            group.add(front);
-            
-            const back = new THREE.Mesh(planeGeoH, material.clone());
-            back.position.set(0, 0, -halfL);
-            back.rotation.x = -Math.PI / 2;
-            group.add(back);
-            
-            const left = new THREE.Mesh(planeGeoV, material.clone());
-            left.position.set(-halfW, 0, 0);
-            left.rotation.x = -Math.PI / 2;
-            group.add(left);
-            
-            const right = new THREE.Mesh(planeGeoV, material.clone());
-            right.position.set(halfW, 0, 0);
-            right.rotation.x = -Math.PI / 2;
-            group.add(right);
-            
+            const halfW = CONFIG.barWidth / 2 + 0.1;
+            const halfL = CONFIG.barLength / 2 + 0.1;
+            const planeGeoH = new THREE.PlaneGeometry(CONFIG.barWidth + 0.2, lineWidth);
+            const planeGeoV = new THREE.PlaneGeometry(lineWidth, CONFIG.barLength + 0.2);
+            const material = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 1.0, side: THREE.DoubleSide });
+            const mk = (geo, mx, my, mz) => { const m = new THREE.Mesh(geo, material.clone()); m.position.set(mx, my, mz); m.rotation.x = -Math.PI / 2; group.add(m); };
+            mk(planeGeoH, 0, 0, halfL);
+            mk(planeGeoH, 0, 0, -halfL);
+            mk(planeGeoV, -halfW, 0, 0);
+            mk(planeGeoV, halfW, 0, 0);
             group.position.set(x, y, z);
             scene.add(group);
-            
-            collisionAnimations.push({
-                startTime: baseTime,
-                duration: 0.5,
-                group: group,
-                startScale: 1.0,
-                endScale: 3.0
-            });
+            collisionAnimations.push({ startTime: baseTime, duration: 0.5, group, startScale: 1.0, endScale: 3.0 });
         }
 
-        // ==================== 标题页面与子页面逻辑 ====================
+        // ============================================================
+        // 成就系统
+        // ============================================================
+        const ACHIEVEMENTS = [
+            { id: 'first', name: '初次起跳', desc: '开始第一局游戏' },
+            { id: 'score500', name: '渐入佳境', desc: '单局达到 500 分' },
+            { id: 'score2000', name: '高手风范', desc: '单局达到 2000 分' },
+            { id: 'combo10', name: '连击达人', desc: '达成 10 连击' },
+            { id: 'combo30', name: '连击之神', desc: '达成 30 连击' },
+            { id: 'survive60', name: '稳如磐石', desc: '存活 60 秒' },
+            { id: 'survive180', name: '持久战士', desc: '存活 180 秒' },
+        ];
+        let unlockedAchievements = new Set(JSON.parse(localStorage.getItem('achievements') || '[]'));
+        function checkAchievements() {
+            const state = { first: true, score500: score >= 500, score2000: score >= 2000, combo10: combo >= 10, combo30: combo >= 30, survive60: survivalTime >= 60, survive180: survivalTime >= 180 };
+            let changed = false;
+            for (const a of ACHIEVEMENTS) {
+                if (state[a.id] && !unlockedAchievements.has(a.id)) {
+                    unlockedAchievements.add(a.id);
+                    showToast(a.name, a.desc);
+                    changed = true;
+                }
+            }
+            if (changed) localStorage.setItem('achievements', JSON.stringify([...unlockedAchievements]));
+        }
+
+        // ============================================================
+        // 标题页面与子页面逻辑
+        // ============================================================
         const titleScreen = document.getElementById('titleScreen');
         const gameContainer = document.getElementById('gameContainer');
         const settingsScreen = document.getElementById('settingsScreen');
@@ -931,16 +940,13 @@
         const aboutScreen = document.getElementById('aboutScreen');
         const historyContent = document.getElementById('historyContent');
         const settingsParticleToggle = document.getElementById('settingsParticleToggle');
-        
-        // 初始化设置页面状态
+        const settingsMusicToggle = document.getElementById('settingsMusicToggle');
+
         settingsParticleToggle.classList.toggle('on', particlesEnabled);
-        document.querySelectorAll('.style-option').forEach(opt => {
-            opt.classList.toggle('active', opt.dataset.style === currentBgStyle);
-        });
-        document.querySelectorAll('.sound-option').forEach(opt => {
-            opt.classList.toggle('active', opt.dataset.sound === soundType);
-        });
-        
+        settingsMusicToggle.classList.toggle('on', audio.musicOn);
+        document.querySelectorAll('.style-option').forEach(opt => opt.classList.toggle('active', opt.dataset.style === currentBgStyle));
+        document.querySelectorAll('.sound-option').forEach(opt => opt.classList.toggle('active', opt.dataset.sound === soundType));
+
         function showScreen(screen) {
             titleScreen.style.display = 'none';
             gameContainer.style.display = 'none';
@@ -950,49 +956,46 @@
             if (screen === 'title') titleScreen.style.display = 'flex';
             else if (screen === 'game') gameContainer.style.display = 'block';
             else if (screen === 'settings') settingsScreen.classList.add('show');
-            else if (screen === 'history') {
-                loadHistory();
-                historyScreen.classList.add('show');
-            }
+            else if (screen === 'history') { loadHistory(); historyScreen.classList.add('show'); }
             else if (screen === 'about') aboutScreen.classList.add('show');
         }
-        
+
         function loadHistory() {
             const highScores = JSON.parse(localStorage.getItem('highScores') || '[]');
+            const bestCombo = localStorage.getItem('bestCombo') || '0';
+            let html = '';
             if (highScores.length === 0) {
-                historyContent.innerHTML = '<div class="empty-state">暂无历史记录<br>快去开始一局游戏吧！</div>';
+                html = '<div class="empty-state">暂无历史记录<br>快去开始一局游戏吧！</div>';
             } else {
-                let html = '<div class="history-list">';
+                html = '<div class="history-list">';
                 highScores.slice(0, 10).forEach((entry, index) => {
                     const score = typeof entry === 'object' ? entry.score : entry;
                     const dateStr = typeof entry === 'object' && entry.date ? entry.date : '历史记录';
-                    html += `<div class="history-item">
-                        <span class="rank">#${index + 1}</span>
-                        <span class="score">${score} 分</span>
-                        <span class="date">${dateStr}</span>
-                    </div>`;
+                    html += '<div class="history-item"><span class="rank">#' + (index + 1) + '</span><span class="score">' + score + ' 分</span><span class="date">' + dateStr + '</span></div>';
                 });
                 html += '</div>';
-                historyContent.innerHTML = html;
             }
+            html += '<div style="margin-top:20px;text-align:center;color:#666;font-size:14px;">最佳连击：' + bestCombo + ' 次 &nbsp;|&nbsp; 已解锁成就：' + unlockedAchievements.size + ' / ' + ACHIEVEMENTS.length + '</div>';
+            historyContent.innerHTML = html;
         }
-        
+
         function startGame() {
+            audio.ensure();
+            audio.startMusic();
             showScreen('game');
             gameState = 'playing';
             resetGame();
+            checkAchievements();
         }
-        
+
         document.getElementById('startGameBtn').addEventListener('click', startGame);
         document.getElementById('settingsBtn').addEventListener('click', () => showScreen('settings'));
         document.getElementById('historyBtn').addEventListener('click', () => showScreen('history'));
         document.getElementById('aboutBtn').addEventListener('click', () => showScreen('about'));
-        
         document.getElementById('backFromSettings').addEventListener('click', () => showScreen('title'));
         document.getElementById('backFromHistory').addEventListener('click', () => showScreen('title'));
         document.getElementById('backFromAbout').addEventListener('click', () => showScreen('title'));
-        
-        // 设置页面交互 - 背景风格
+
         document.querySelectorAll('.style-option').forEach(opt => {
             opt.addEventListener('click', () => {
                 const style = opt.dataset.style;
@@ -1003,8 +1006,6 @@
                 applyBackgroundStyle(style);
             });
         });
-        
-        // 设置页面交互 - 音效类型
         document.querySelectorAll('.sound-option').forEach(opt => {
             opt.addEventListener('click', () => {
                 const sound = opt.dataset.sound;
@@ -1012,45 +1013,65 @@
                 localStorage.setItem('soundType', sound);
                 document.querySelectorAll('.sound-option').forEach(o => o.classList.remove('active'));
                 opt.classList.add('active');
+                audio.playCollision();
             });
         });
-        
-        // 设置页面交互 - 粒子特效
         settingsParticleToggle.addEventListener('click', () => {
             particlesEnabled = !particlesEnabled;
             settingsParticleToggle.classList.toggle('on', particlesEnabled);
             particlesGroup.visible = particlesEnabled;
             localStorage.setItem('particlesEnabled', particlesEnabled);
         });
-        
-        const backToTitleBtn = document.getElementById('backToTitleBtn');
+        settingsMusicToggle.addEventListener('click', () => {
+            audio.setMusicOn(!audio.musicOn);
+            settingsMusicToggle.classList.toggle('on', audio.musicOn);
+        });
+
+        // 静音 / 暂停按钮
+        function updateMuteBtn() {
+            muteBtn.textContent = audio.muted ? '🔇' : '🔊';
+            muteBtn.classList.toggle('active', audio.muted);
+        }
+        muteBtn.addEventListener('click', () => { audio.setMuted(!audio.muted); updateMuteBtn(); });
+        updateMuteBtn();
+        pauseBtn.addEventListener('click', () => { if (gameState === 'playing') pauseGame(); else if (gameState === 'paused') resumeGame(); });
+
         function backToTitle() {
             document.getElementById('failOverlay').classList.remove('show');
+            document.getElementById('pauseOverlay').classList.remove('show');
+            audio.stopMusic();
             showScreen('title');
             gameState = 'menu';
         }
-        backToTitleBtn.addEventListener('click', backToTitle);
-        
-        function saveScore(score) {
+        document.getElementById('backToTitleBtn').addEventListener('click', backToTitle);
+        document.getElementById('pauseToTitleBtn').addEventListener('click', backToTitle);
+        document.getElementById('resumeBtn').addEventListener('click', resumeGame);
+
+        function saveScore() {
             const highScores = JSON.parse(localStorage.getItem('highScores') || '[]');
             const dateStr = new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-            highScores.push({ score, date: dateStr });
+            highScores.push({ score: score, date: dateStr });
             highScores.sort((a, b) => (typeof b === 'object' ? b.score : b) - (typeof a === 'object' ? a.score : a));
-            const top10 = highScores.slice(0, 10);
-            localStorage.setItem('highScores', JSON.stringify(top10));
+            localStorage.setItem('highScores', JSON.stringify(highScores.slice(0, 10)));
+            const prevBest = parseInt(localStorage.getItem('bestCombo') || '0', 10);
+            if (bestCombo > prevBest) localStorage.setItem('bestCombo', String(bestCombo));
         }
-        
-        // ==================== 游戏状态 ====================
+
+        // ============================================================
+        // 游戏状态
+        // ============================================================
         let gameState = 'menu';
         let canControl = true;
         let targetColorIdx = randomColorIndex();
-        let ballPos = new THREE.Vector3(LANE_X[1], BALL_RADIUS, 5);
+        let ballPos = new THREE.Vector3(CONFIG.laneX[1], CONFIG.ballRadius, 5);
         let ballVel = new THREE.Vector3(0, V0, 0);
         let currentBarIndex = 0;
         let totalRoll = 0;
-        let gameStartTime = 0;
+        let survivalTime = 0;
         let reward1min = false, reward2min = false, reward3min = false;
         let score = 0;
+        let combo = 0;
+        let bestCombo = 0;
 
         updateSphere(createSphere(targetColorIdx));
         updateTargetColorUI(targetColorIdx);
@@ -1060,23 +1081,40 @@
         function resetGame() {
             gameState = 'playing';
             canControl = true;
-            score = 0;
-            document.getElementById('scoreDisplay').textContent = '分数: ' + score;
+            score = 0; combo = 0;
+            survivalTime = 0;
+            difficulty = 0;
+            updateScoreUI();
+            showCombo(0, 1);
             document.getElementById('failOverlay').classList.remove('show');
-            currentLane = 1; targetLaneX = LANE_X[1]; currentLaneX = LANE_X[1];
+            document.getElementById('pauseOverlay').classList.remove('show');
+            currentLane = 1; targetLaneX = CONFIG.laneX[1]; currentLaneX = CONFIG.laneX[1];
             updateLaneDots();
-            ballPos.set(LANE_X[1], BALL_RADIUS, 5);
+            ballPos.set(CONFIG.laneX[1], CONFIG.ballRadius, 5);
             ballVel.set(0, V0, 0);
             currentBarIndex = 0; totalRoll = 0;
-            gameStartTime = clock.getElapsedTime();
             reward1min = false; reward2min = false; reward3min = false;
             targetColorIdx = randomColorIndex();
             updateSphere(createSphere(targetColorIdx));
             updateTargetColorUI(targetColorIdx);
+            clearTrail();
         }
-        document.getElementById('restartBtn').addEventListener('click', resetGame);
+        document.getElementById('restartBtn').addEventListener('click', () => { resetGame(); audio.startMusic(); });
 
-        // ==================== 动画循环 ====================
+        function pauseGame() {
+            if (gameState !== 'playing') return;
+            gameState = 'paused';
+            document.getElementById('pauseOverlay').classList.add('show');
+        }
+        function resumeGame() {
+            if (gameState !== 'paused') return;
+            gameState = 'playing';
+            document.getElementById('pauseOverlay').classList.remove('show');
+        }
+
+        // ============================================================
+        // 动画循环
+        // ============================================================
         const clock = new THREE.Clock();
         function animate() {
             requestAnimationFrame(animate);
@@ -1084,70 +1122,85 @@
             const elapsedTime = clock.getElapsedTime();
 
             if (gameState === 'playing') {
-                const survivalTime = clock.getElapsedTime() - gameStartTime;
-                if (!reward1min && survivalTime >= 60) { score += 1000; reward1min = true; document.getElementById('scoreDisplay').textContent = '分数: ' + score; }
-                if (!reward2min && survivalTime >= 120) { score += 3000; reward2min = true; document.getElementById('scoreDisplay').textContent = '分数: ' + score; }
-                if (!reward3min && survivalTime >= 180) { score += 5000; reward3min = true; document.getElementById('scoreDisplay').textContent = '分数: ' + score; }
-                currentLaneX += (targetLaneX - currentLaneX) * Math.min(1, dt * 8);
-                ballPos.x = currentLaneX;
+                survivalTime += dt;
+                difficulty = Math.min(1, survivalTime / CONFIG.rampSeconds);
 
-                ballVel.y -= G * dt;
+                if (!reward1min && survivalTime >= 60) { score += 1000; reward1min = true; updateScoreUI(); showPopup(window.innerWidth / 2, 140, '+1000 存活奖励', '#ffd76a'); flashGold(); }
+                if (!reward2min && survivalTime >= 120) { score += 3000; reward2min = true; updateScoreUI(); showPopup(window.innerWidth / 2, 140, '+3000 存活奖励', '#ffd76a'); flashGold(); }
+                if (!reward3min && survivalTime >= 180) { score += 5000; reward3min = true; updateScoreUI(); showPopup(window.innerWidth / 2, 140, '+5000 存活奖励', '#ffd76a'); flashGold(); }
+
+                currentLaneX += (targetLaneX - currentLaneX) * Math.min(1, dt * 10);
+                ballPos.x = currentLaneX;
+                ballVel.y -= CONFIG.gravity * dt;
                 ballPos.y += ballVel.y * dt;
                 ballPos.z += ballVel.z * dt;
                 totalRoll += Math.abs(ballVel.z * dt);
 
-                const barTopY = BAR_HEIGHT / 2;
+                const barTopY = CONFIG.barHeight / 2;
                 const nextBarZ = barZPositions[currentBarIndex + 1];
 
-                if (ballPos.y - BALL_RADIUS <= barTopY && ballVel.y < 0) {
+                if (ballPos.y - CONFIG.ballRadius <= barTopY && ballVel.y < 0) {
                     let actualLane = 0;
-                    let minDist = Math.abs(ballPos.x - LANE_X[0]);
-                    for (let i = 1; i < LANE_COUNT; i++) {
-                        const d = Math.abs(ballPos.x - LANE_X[i]);
+                    let minDist = Math.abs(ballPos.x - CONFIG.laneX[0]);
+                    for (let i = 1; i < CONFIG.laneCount; i++) {
+                        const d = Math.abs(ballPos.x - CONFIG.laneX[i]);
                         if (d < minDist) { minDist = d; actualLane = i; }
                     }
                     const barColorIdx = barColors[currentBarIndex][actualLane];
 
                     if (barColorIdx === targetColorIdx) {
-                        // 成功弹跳，恢复控制权限（修复：切换车道后的正确碰撞应恢复操作）
                         canControl = true;
-                        // 触发方块下陷冲击动画
                         const hitBar = barPool.find(b => b.visible && b.userData.barIndex === currentBarIndex && b.userData.lane === actualLane);
-                        if (hitBar) {
-                            hitBar.userData.impactTime = clock.getElapsedTime();
-                        }
-                        
-                        ballPos.y = barTopY + BALL_RADIUS;
+                        if (hitBar) hitBar.userData.impactTime = clock.getElapsedTime();
+
+                        ballPos.y = barTopY + CONFIG.ballRadius;
                         if (nextBarZ !== undefined) {
                             ballVel.z = -Math.abs(nextBarZ - ballPos.z) / FLIGHT_TIME;
                             ballVel.y = V0;
                         }
                         currentBarIndex++;
                         ensureBars(currentBarIndex + 15);
-                        targetColorIdx = randomColorIndex();
-                        updateSphereColor(targetColorIdx);
-                        updateTargetColorUI(targetColorIdx);
-                        
-                        playCollisionSound();
-                        const survivalTime = clock.getElapsedTime() - gameStartTime;
+
+                        combo++;
+                        bestCombo = Math.max(bestCombo, combo);
+                        const mult = Math.min(1 + Math.floor(combo / CONFIG.comboStep), CONFIG.comboMax);
                         let points = 10;
                         if (survivalTime >= 180) points = 30;
                         else if (survivalTime >= 120) points = 25;
                         else if (survivalTime >= 60) points = 20;
                         else if (survivalTime >= 30) points = 15;
+                        points *= mult;
                         score += points;
-                        document.getElementById('scoreDisplay').textContent = '分数: ' + score;
+                        updateScoreUI();
+                        showCombo(combo, mult);
+                        if (combo % CONFIG.comboStep === 0) { flashGreen(); audio.playCombo(); }
+
+                        targetColorIdx = randomColorIndex();
+                        updateSphereColor(targetColorIdx);
+                        updateTargetColorUI(targetColorIdx);
+
+                        audio.playCollision();
                         addCollisionAnimation(currentBarIndex - 1, actualLane, new THREE.Color(COLOR_VALUES[barColorIdx]));
+                        addBurst(CONFIG.laneX[actualLane], barTopY + 0.2, ballPos.z, COLOR_VALUES[barColorIdx]);
+
+                        const sx = window.innerWidth / 2 + actualLane * 30 - 30;
+                        showPopup(sx, 150, '+' + points, '#7dffb0');
+
+                        checkAchievements();
                     } else {
+                        // 落在错误颜色或危险色上
                         canControl = false;
+                        combo = 0;
+                        showCombo(0, 1);
                     }
                 }
 
                 if (ballPos.y < -15) {
                     gameState = 'failed';
+                    failStats.innerHTML = '本局得分：<b style="color:#fff">' + score + '</b><br>最大连击：<b style="color:#ffd76a">' + bestCombo + '</b> 次<br>存活时间：<b style="color:#7dffb0">' + Math.floor(survivalTime) + '</b> 秒';
                     document.getElementById('failOverlay').classList.add('show');
-                    playFailSound();
-                    saveScore(score);
+                    saveScore();
+                    checkAchievements();
                 }
 
                 ballGroup.position.copy(ballPos);
@@ -1155,11 +1208,15 @@
                 const squash = 1 - deformPhase * 0.05;
                 const stretch = 1 + deformPhase * 0.05;
                 ballGroup.scale.set(squash, stretch, squash);
+
+                updateTrail(targetColorIdx, ballPos.x, ballPos.y, ballPos.z);
             }
 
-            if (currentSphere) { currentSphere.rotation.y = elapsedTime * 0.3; currentSphere.rotation.x = totalRoll / BALL_RADIUS; }
-            if (currentAtmosphere) { currentAtmosphere.rotation.y = elapsedTime * 0.3; currentAtmosphere.rotation.x = totalRoll / BALL_RADIUS; }
-            if (currentGlow) { currentGlow.rotation.y = elapsedTime * 0.3; currentGlow.rotation.x = totalRoll / BALL_RADIUS; }
+            updateBursts(dt);
+
+            if (currentSphere) { currentSphere.rotation.y = elapsedTime * 0.3; currentSphere.rotation.x = totalRoll / CONFIG.ballRadius; }
+            if (currentAtmosphere) { currentAtmosphere.rotation.y = elapsedTime * 0.3; currentAtmosphere.rotation.x = totalRoll / CONFIG.ballRadius; }
+            if (currentGlow) { currentGlow.rotation.y = elapsedTime * 0.3; currentGlow.rotation.x = totalRoll / CONFIG.ballRadius; }
             particlesGroup.rotation.y = elapsedTime * 0.2;
             stars.rotation.y = elapsedTime * 0.002;
 
@@ -1174,7 +1231,7 @@
             ballLight.position.set(ballPos.x, ballPos.y + 2, ballPos.z + 2);
 
             renderBars(currentBarIndex, elapsedTime);
-            
+
             const currentTime = clock.getElapsedTime();
             for (let i = collisionAnimations.length - 1; i >= 0; i--) {
                 const anim = collisionAnimations[i];
@@ -1183,27 +1240,20 @@
                     if (anim.group) {
                         scene.remove(anim.group);
                         anim.group.traverse((child) => {
-                            if (child instanceof THREE.Mesh) {
-                                child.geometry.dispose();
-                                child.material.dispose();
-                            }
+                            if (child instanceof THREE.Mesh) { child.geometry.dispose(); child.material.dispose(); }
                         });
                     }
                     collisionAnimations.splice(i, 1);
                     continue;
                 }
-                
                 const progress = elapsed / anim.duration;
                 const easeProgress = 1 - Math.pow(1 - progress, 3);
                 if (anim.group) {
                     const scale = anim.startScale + (anim.endScale - anim.startScale) * easeProgress;
                     anim.group.scale.set(scale, scale, scale);
-                    const opacityProgress = 1 - Math.pow(1 - progress, 1.5);
-                    const opacity = 1.0 * (1 - opacityProgress);
+                    const opacity = 1.0 * (1 - (1 - Math.pow(1 - progress, 1.5)));
                     anim.group.traverse((child) => {
-                        if (child instanceof THREE.Mesh && child.material) {
-                            child.material.opacity = opacity;
-                        }
+                        if (child instanceof THREE.Mesh && child.material) child.material.opacity = opacity;
                     });
                 }
             }
@@ -1216,7 +1266,7 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
-        
+
         // 应用初始背景风格
         applyBackgroundStyle(currentBgStyle);
     </script>
