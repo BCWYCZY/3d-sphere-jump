@@ -707,9 +707,12 @@
         // ============================================================
         // 灯光
         // ============================================================
+        // 环境光：提供基础亮度（无高光，不会在球体上形成反射光点）
         const ambientLight = new THREE.AmbientLight(0x222233, 0.6);
         scene.add(ambientLight);
-        const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);
+
+        // 唯一的方向光（主光）：跟随镜头、指向轨道，兼顾照亮轨道与球体高光 + 阴影
+        const mainLight = new THREE.DirectionalLight(0xffffff, 1.8);
         mainLight.position.set(5, 12, 8);
         mainLight.castShadow = true;
         mainLight.shadow.mapSize.width = 2048;
@@ -722,12 +725,7 @@
         mainLight.shadow.camera.bottom = -20;
         mainLight.shadow.bias = -0.001;
         scene.add(mainLight);
-        const fillLight = new THREE.DirectionalLight(0x445588, 0.4);
-        fillLight.position.set(-8, 6, -2);
-        scene.add(fillLight);
-        const ballLight = new THREE.PointLight(0xffffff, 2.0, 12);
-        ballLight.position.set(0, 2, 2);
-        scene.add(ballLight);
+        scene.add(mainLight.target);
 
         // ============================================================
         // 星空
@@ -1226,9 +1224,9 @@
             camera.lookAt(ballPos.x, ballPos.y + 0.3, ballPos.z - 5);
 
             const camPos = camera.position.clone();
-            mainLight.position.set(camPos.x + 5, camPos.y + 10, camPos.z + 6);
-            fillLight.position.set(camPos.x - 8, camPos.y + 4, camPos.z - 2);
-            ballLight.position.set(ballPos.x, ballPos.y + 2, ballPos.z + 2);
+            mainLight.position.set(camPos.x, camPos.y + 8, camPos.z + 4);
+            mainLight.target.position.set(ballPos.x, ballPos.y, ballPos.z - 6);
+            mainLight.target.updateMatrixWorld();
 
             renderBars(currentBarIndex, elapsedTime);
 
